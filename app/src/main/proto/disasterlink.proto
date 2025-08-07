@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package disasterlink;
+
+option java_package = "com.example.disasterlink.proto";
+option java_multiple_files = true;
+
+[cite_start]// A wrapper message that contains one of the possible payload types. [cite: 114]
+[cite_start]// This allows us to use a single characteristic for multiple message types. [cite: 115]
+message DisasterLinkPacket {
+  oneof payload {
+    [cite_start]DeviceStatus status = 1; [cite: 116]
+    [cite_start]Message message = 2; [cite: 116]
+    [cite_start]NetworkInfo network_info = 3; [cite: 117]
+  }
+}
+
+[cite_start]// Represents the health and role of a network node. [cite: 117]
+[cite_start]// Corresponds to the Device Status Characteristic. [cite: 118]
+message DeviceStatus {
+  string device_id = 1; [cite_start]// A unique identifier for the device (e.g., UUID). [cite: 118]
+  int32 battery_level = 2; [cite_start]// Battery percentage from 0 to 100. [cite: 119]
+  enum Role {
+    ENDPOINT = 0; [cite_start]// A standard node, not actively relaying. [cite: 120]
+    RELAY = 1;      [cite_start]// A node actively participating in relaying. [cite: 121]
+  }
+  [cite_start]Role current_role = 3; [cite: 122]
+}
+
+[cite_start]// The core message structure for user communication and relaying. [cite: 122]
+[cite_start]// Corresponds to the Message Exchange Characteristic. [cite: 123]
+message Message {
+  string message_id = 1; [cite_start]// Unique UUID for message deduplication. [cite: 123]
+  string source_id = 2; [cite_start]// Device ID of the message originator. [cite: 124]
+  string destination_id = 3; [cite_start]// Target device ID, or a special "BROADCAST" value. [cite: 125]
+  int64 timestamp_ms = 4; [cite_start]// UTC timestamp of message creation. [cite: 125]
+  int32 ttl = 5; [cite_start]// Time-To-Live hop count for loop prevention. [cite: 126]
+  bytes content = 6; [cite_start]// The actual message content (e.g., encrypted text). [cite: 127]
+}
+
+[cite_start]// Represents a node's knowledge of its neighbors. [cite: 128]
+[cite_start]// Corresponds to the Network Information Characteristic. [cite: 128]
+message NetworkInfo {
+  string device_id = 1; [cite_start]// The ID of the device reporting this information. [cite: 129]
+  repeated Neighbor neighbors = 2; [cite_start]// A list of directly connected neighbors. [cite: 130]
+}
+
+message Neighbor {
+  [cite_start]string device_id = 1; [cite: 131]
+  sint32 rssi = 2; [cite_start]// Last known signal strength to this neighbor. [cite: 131]
+}
