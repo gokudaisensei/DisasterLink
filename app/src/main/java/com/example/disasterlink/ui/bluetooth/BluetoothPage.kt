@@ -32,7 +32,7 @@ fun BluetoothPage(
         Text("Connection State: $connectionState")
 
         scannedDevice?.let {
-            Text("Device: ${it.name ?: "Unknown"} (${it.address})")
+            Text("Device: ${it.name ?: "Unknown"} (${it.id})")
         }
 
         Spacer(modifier = Modifier.height(16.dp))

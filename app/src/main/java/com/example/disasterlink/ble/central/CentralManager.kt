@@ -8,18 +8,14 @@ import android.content.Context
 import android.os.ParcelUuid
 import android.util.Log
 import androidx.annotation.RequiresPermission
+import com.example.disasterlink.ble.model.BleDevice
+import com.example.disasterlink.ble.model.ConnectionState
 import com.example.disasterlink.ble.util.BlePermissionHelper
 import com.example.disasterlink.ble.util.FragmentationHelper
 import com.example.disasterlink.ble.util.MtuManager
 import com.example.disasterlink.ble.util.UuidConstants
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
-
-enum class ConnectionState {
-    CONNECTED, CONNECTING, DISCONNECTED
-}
-
-data class BleDevice(val address: String, val name: String?)
 
 class CentralManager(
     private val context: Context,
@@ -134,7 +130,7 @@ class CentralManager(
         @RequiresPermission(allOf = [Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN])
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             try {
-                onDeviceFound(BleDevice(result.device.address, result.device.name))
+                onDeviceFound(BleDevice(result.device.address, result.device.name, result.rssi))
             } catch (t: Throwable) {
                 Log.w(TAG, "onDeviceFound threw: ${t.message}")
             }

@@ -139,7 +139,7 @@ class DisasterLinkService : Service() {
      * Callbacks
      */
     private fun onDeviceFound(device: BleDevice) {
-        Log.i(TAG, "Device found: ${device.name} (${device.address})")
+        Log.i(TAG, "Device found: ${device.name} (${device.id})")
         _deviceFoundFlow.value = device
     }
 
