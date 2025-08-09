@@ -4,7 +4,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.material3.MaterialTheme // Added import
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -22,9 +21,6 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             DisasterLinkTheme {
-                // Set the window background color
-                window.decorView.setBackgroundColor(MaterialTheme.colorScheme.background.hashCode()) // Added this line
-
                 DisasterLinkApp()
             }
         }

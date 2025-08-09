@@ -1,4 +1,4 @@
-package com.example.disasterlink.service
+package com.example.disasterlink.ble.service
 
 import android.Manifest
 import android.app.Service
@@ -8,8 +8,8 @@ import android.os.IBinder
 import android.util.Log
 import androidx.annotation.RequiresPermission
 import com.example.disasterlink.ble.central.CentralManager
-import com.example.disasterlink.ble.central.ConnectionState
-import com.example.disasterlink.ble.central.BleDevice
+import com.example.disasterlink.ble.model.ConnectionState
+import com.example.disasterlink.ble.model.BleDevice
 import com.example.disasterlink.ble.peripheral.PeripheralManager
 import com.example.disasterlink.ble.util.BlePermissionHelper
 import com.example.disasterlink.ble.util.MtuManager
@@ -139,7 +139,7 @@ class DisasterLinkService : Service() {
      * Callbacks
      */
     private fun onDeviceFound(device: BleDevice) {
-        Log.i(TAG, "Device found: ${device.name} (${device.address})")
+        Log.i(TAG, "Device found: ${device.name} (${device.id})")
         _deviceFoundFlow.value = device
     }
 
