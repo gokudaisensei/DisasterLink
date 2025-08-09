@@ -8,7 +8,7 @@ import android.content.Context
 import android.os.ParcelUuid
 import android.util.Log
 import androidx.annotation.RequiresPermission
-import com.example.disasterlink.ble.central.ConnectionState
+import com.example.disasterlink.ble.model.ConnectionState
 import com.example.disasterlink.ble.util.FragmentationHelper
 import com.example.disasterlink.ble.util.MtuManager
 import com.example.disasterlink.ble.util.UuidConstants

@@ -9,7 +9,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.disasterlink.ble.central.ConnectionState
+import com.example.disasterlink.ble.model.ConnectionState
 
 @SuppressLint("MissingPermission")
 @Composable

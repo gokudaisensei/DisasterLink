@@ -11,8 +11,8 @@ import android.util.Log
 import androidx.annotation.RequiresPermission
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.disasterlink.ble.central.BleDevice
-import com.example.disasterlink.ble.central.ConnectionState
+import com.example.disasterlink.ble.model.BleDevice
+import com.example.disasterlink.ble.model.ConnectionState
 import com.example.disasterlink.proto.DisasterLinkPacket
 import com.example.disasterlink.service.DisasterLinkService
 import kotlinx.coroutines.flow.MutableStateFlow
