@@ -2,50 +2,88 @@ syntax = "proto3";
 
 package disasterlink;
 
+// Generated Java/Kotlin classes will be placed under this package.
 option java_package = "com.example.disasterlink.proto";
 option java_multiple_files = true;
 
-[cite_start]// A wrapper message that contains one of the possible payload types. [cite: 114]
-[cite_start]// This allows us to use a single characteristic for multiple message types. [cite: 115]
+// Root wrapper for all DisasterLink BLE payloads.
+// Used so a single BLE characteristic can carry different types of messages.
 message DisasterLinkPacket {
   oneof payload {
-    [cite_start]DeviceStatus status = 1; [cite: 116]
-    [cite_start]Message message = 2; [cite: 116]
-    [cite_start]NetworkInfo network_info = 3; [cite: 117]
+    DeviceStatus status        = 1;
+    Message message            = 2;
+    NetworkInfo network_info   = 3;
   }
 }
 
-[cite_start]// Represents the health and role of a network node. [cite: 117]
-[cite_start]// Corresponds to the Device Status Characteristic. [cite: 118]
+// ------------------------ DEVICE STATUS ------------------------
+// Maps to the Device Status Characteristic UUID in UuidConstants.
 message DeviceStatus {
-  string device_id = 1; [cite_start]// A unique identifier for the device (e.g., UUID). [cite: 118]
-  int32 battery_level = 2; [cite_start]// Battery percentage from 0 to 100. [cite: 119]
+  // Globally unique identifier for the device (UUID string).
+  string device_id = 1;
+
+  // Battery percentage, valid range 0–100.
+  // Application layer must enforce the range.
+  uint32 battery_level = 2;
+
+  // Current role of this device in the network.
   enum Role {
-    ENDPOINT = 0; [cite_start]// A standard node, not actively relaying. [cite: 120]
-    RELAY = 1;      [cite_start]// A node actively participating in relaying. [cite: 121]
+    ROLE_UNSPECIFIED = 0; // Unknown or unset role.
+    ENDPOINT         = 1; // A standard node, not actively relaying.
+    RELAY            = 2; // A node actively relaying messages.
   }
-  [cite_start]Role current_role = 3; [cite: 122]
+  Role current_role = 3;
+
+  // Reserved field numbers for future expansion.
+  reserved 10 to 19;
 }
 
-[cite_start]// The core message structure for user communication and relaying. [cite: 122]
-[cite_start]// Corresponds to the Message Exchange Characteristic. [cite: 123]
+// ------------------------ MESSAGE EXCHANGE ------------------------
+// Maps to the Message Exchange Characteristic UUID in UuidConstants.
 message Message {
-  string message_id = 1; [cite_start]// Unique UUID for message deduplication. [cite: 123]
-  string source_id = 2; [cite_start]// Device ID of the message originator. [cite: 124]
-  string destination_id = 3; [cite_start]// Target device ID, or a special "BROADCAST" value. [cite: 125]
-  int64 timestamp_ms = 4; [cite_start]// UTC timestamp of message creation. [cite: 125]
-  int32 ttl = 5; [cite_start]// Time-To-Live hop count for loop prevention. [cite: 126]
-  bytes content = 6; [cite_start]// The actual message content (e.g., encrypted text). [cite: 127]
+  // Unique ID for this message (UUID string).
+  string message_id = 1;
+
+  // Device ID of the original sender.
+  string source_id = 2;
+
+  // Target device ID, or literal "BROADCAST" for broadcast delivery.
+  string destination_id = 3;
+
+  // UTC timestamp of message creation in milliseconds since epoch.
+  int64 timestamp_ms = 4;
+
+  // Time-To-Live hop count for loop prevention.
+  // Must be >= 0; decremented at each relay.
+  uint32 ttl = 5;
+
+  // Actual message payload (e.g., encrypted or plain text).
+  // Keep size small for BLE; consider compression if large.
+  bytes content = 6;
+
+  reserved 10 to 19;
 }
 
-[cite_start]// Represents a node's knowledge of its neighbors. [cite: 128]
-[cite_start]// Corresponds to the Network Information Characteristic. [cite: 128]
+// ------------------------ NETWORK INFORMATION ------------------------
+// Maps to the Network Information Characteristic UUID in UuidConstants.
 message NetworkInfo {
-  string device_id = 1; [cite_start]// The ID of the device reporting this information. [cite: 129]
-  repeated Neighbor neighbors = 2; [cite_start]// A list of directly connected neighbors. [cite: 130]
+  // Device ID of the reporting node.
+  string device_id = 1;
+
+  // List of directly connected neighbors.
+  repeated Neighbor neighbors = 2;
+
+  reserved 10 to 19;
 }
 
+// Details about a neighboring device.
 message Neighbor {
-  [cite_start]string device_id = 1; [cite: 131]
-  sint32 rssi = 2; [cite_start]// Last known signal strength to this neighbor. [cite: 131]
+  // Neighbor device ID.
+  string device_id = 1;
+
+  // Last known signal strength to this neighbor in dBm.
+  // Negative values are expected (e.g., -60).
+  sint32 rssi = 2;
+
+  reserved 10 to 19;
 }

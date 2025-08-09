@@ -1,8 +1,8 @@
-package com.example.disasterlink.ui.theme.home
+package com.example.disasterlink.ui.home
 
 import android.Manifest
-import android.content.Context
 import android.content.pm.PackageManager
+import android.location.Address
 import android.location.Geocoder
 import android.os.Build // Added import for Build version
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -63,7 +63,7 @@ fun HomePage(navController: NavController) { // Added NavController
                             location.longitude,
                             1, // maxResults
                             object : Geocoder.GeocodeListener {
-                                override fun onGeocode(addressesList: List<android.location.Address>) {
+                                override fun onGeocode(addressesList: List<Address>) {
                                     try {
                                         val address = addressesList.firstOrNull()
                                         locationText = if (address != null) {
@@ -312,12 +312,12 @@ fun LocationSection(location: String, lastUpdated: String, onRefreshClick: () ->
 @Composable
 fun QuickActionsGrid(navController: NavController) { // Added NavController
     val actions = listOf(
-        QuickAction("Send Message", Icons.Default.Message, "sendMessage"), // Added a route name or identifier
+        QuickAction("Send Message", Icons.Default.Message, "sendMessage"), 
         QuickAction("Broadcast SOS", Icons.Default.Warning, "broadcastSOS"),
         QuickAction("Report Resource Need", Icons.Default.Report, "reportResourceNeed"),
         QuickAction("Share My Status", Icons.Default.Share, "shareMyStatus"),
         QuickAction("Nearby Alerts", Icons.Default.Notifications, "nearbyAlerts"),
-        QuickAction("Bluetooth Mesh", Icons.Default.Bluetooth, "bluetoothMesh") // Route for Bluetooth Mesh
+        QuickAction("Bluetooth Mesh", Icons.Default.Bluetooth, "BluetoothPage") // MODIFIED: Route for Bluetooth Mesh
     )
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -332,7 +332,7 @@ fun QuickActionsGrid(navController: NavController) { // Added NavController
                         title = action.title,
                         icon = action.icon,
                         onTap = {
-                            if (action.route == "bluetoothMesh") {
+                            if (action.route == "BluetoothPage") { // MODIFIED: Check for BluetoothPage route
                                 navController.navigate(action.route)
                             } else {
                                 // Handle other actions or leave as does nothing for now
@@ -353,7 +353,7 @@ fun QuickActionsGrid(navController: NavController) { // Added NavController
                         title = action.title,
                         icon = action.icon,
                         onTap = {
-                            if (action.route == "bluetoothMesh") {
+                            if (action.route == "BluetoothPage") { // MODIFIED: Check for BluetoothPage route
                                 navController.navigate(action.route)
                             } else {
                                 // Handle other actions or leave as does nothing for now

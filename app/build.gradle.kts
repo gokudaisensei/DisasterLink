@@ -54,7 +54,8 @@ dependencies {
     implementation(libs.play.services.location)
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.foundation)
-    implementation("com.google.protobuf:protobuf-javalite:4.27.1") // Or the specific version you need
+    implementation(libs.protobuf.javalite) // Or the specific version you need
+    implementation(libs.google.protobuf.kotlin.lite)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -63,3 +64,24 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 }
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:4.31.1" // Use your version catalog
+    }
+    generateProtoTasks {
+        all().forEach { task ->
+            task.builtins {
+                create("java") {
+                    option("lite")
+                }
+                create("kotlin") {
+                    option("lite")
+                }
+            }
+        }
+    }
+}
+
+
+
