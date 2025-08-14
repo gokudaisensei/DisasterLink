@@ -42,10 +42,23 @@ class CentralManager(
     private var bluetoothGatt: BluetoothGatt? = null
     private val isScanning = AtomicBoolean(false)
 
-    private lateinit var fragmentationHelper: FragmentationHelper
+    // manager-level reference to FragmentationHelper (created by callback when MTU known)
+    private var fragmentationHelper: FragmentationHelper? = null
+
+    // Externalized GATT client callback (injected with hooks)
+    private val gattCallback =
+        GattClientCallback(mtuManager = mtuManager, onConnectionStateChange = { state ->
+            onConnectionStateChange(state)
+        }, onPacketReceived = { bytes ->
+            onPacketReceived(bytes)
+        }, onFragmentationHelperReady = { helper ->
+            fragmentationHelper = helper
+            Log.d(TAG, "FragmentationHelper ready in CentralManager (mtu=${helper.mtu})")
+        })
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     fun startScan() {
+        Log.d(TAG, "startScan()")
         if (!BlePermissionHelper.hasScanPermission(context)) {
             Log.e(TAG, "Missing BLUETOOTH_SCAN permission - cannot scan")
             return
@@ -57,13 +70,11 @@ class CentralManager(
         }
 
         val filters = listOf(
-            ScanFilter.Builder()
-                .setServiceUuid(ParcelUuid(UuidConstants.SERVICE_DISASTER_LINK))
+            ScanFilter.Builder().setServiceUuid(ParcelUuid(UuidConstants.SERVICE_DISASTER_LINK))
                 .build()
         )
-        val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-            .build()
+        val settings =
+            ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
 
         isScanning.set(true)
         scanner.startScan(filters, settings, scanCallback)
@@ -72,6 +83,7 @@ class CentralManager(
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     fun stopScan() {
+        Log.d(TAG, "stopScan()")
         if (scanner != null && isScanning.get()) {
             try {
                 scanner.stopScan(scanCallback)
@@ -85,6 +97,7 @@ class CentralManager(
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     fun disconnect() {
+        Log.d(TAG, "disconnect()")
         try {
             bluetoothGatt?.disconnect()
             bluetoothGatt?.close()
@@ -97,46 +110,50 @@ class CentralManager(
     }
 
     /**
-     * Fragment and write payload to the connected device (as a client).
-     * Will write fragments sequentially using writeCharacteristic.
+     * Send a full payload (will be fragmented according to helper.mtu)
      */
     @SuppressLint("MissingPermission")
     fun sendPacket(payload: ByteArray) {
-        if (!::fragmentationHelper.isInitialized) {
+        Log.d(TAG, "sendPacket(len=${payload.size})")
+        val helper = fragmentationHelper
+        if (helper == null) {
             Log.e(TAG, "FragmentationHelper not initialized; cannot send")
             return
         }
+
         val service = bluetoothGatt?.getService(UuidConstants.SERVICE_DISASTER_LINK)
         if (service == null) {
             Log.e(TAG, "Service not found; cannot send")
             return
         }
+
         val char = service.getCharacteristic(UuidConstants.CHARACTERISTIC_DEVICE_STATUS)
         if (char == null) {
             Log.e(TAG, "Characteristic not found; cannot send")
             return
         }
 
-        val fragments = fragmentationHelper.fragment(payload)
+        val fragments = helper.fragment(payload)
+        Log.d(TAG, "Sending ${fragments.size} fragments")
         for (fragment in fragments) {
             char.value = fragment
-            val writeStarted = bluetoothGatt?.writeCharacteristic(char) ?: false
-            if (writeStarted == false) {
-                Log.w(TAG, "writeCharacteristic returned false for a fragment")
+            val started = bluetoothGatt?.writeCharacteristic(char) ?: false
+            if (!started) Log.w(TAG, "writeCharacteristic returned false for a fragment")
+            // Slight throttle to avoid overwhelming native queue
+            try {
+                Thread.sleep(6)
+            } catch (_: InterruptedException) {
             }
-            // Note: we don't wait for onCharacteristicWrite here — Android BLE stack handles queueing.
-            // If you need strict sequencing, implement a write queue that waits for onCharacteristicWrite callbacks.
-            Thread.sleep(5) // small throttle to avoid overwhelming the stack
         }
     }
 
     private val scanCallback = object : ScanCallback() {
         @RequiresPermission(allOf = [Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN])
         override fun onScanResult(callbackType: Int, result: ScanResult) {
+            Log.d(TAG, "onScanResult device=${result.device.address} name=${result.device.name}")
             try {
                 onDeviceFound(BleDevice(result.device.address, result.device.name))
             } catch (t: Throwable) {
-                Log.w(TAG, "onDeviceFound threw: ${t.message}")
             }
             stopScan()
             connectToDevice(result.device)
@@ -149,90 +166,20 @@ class CentralManager(
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     private fun connectToDevice(device: BluetoothDevice) {
-        // Establish GATT connection
+        Log.i(TAG, "Connecting to device ${device.address}")
         bluetoothGatt = device.connectGatt(context, false, gattCallback)
         onConnectionStateChange(ConnectionState.CONNECTING)
     }
 
-    private val gattCallback = object : BluetoothGattCallback() {
-        @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-        override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-            val state = when (newState) {
-                BluetoothProfile.STATE_CONNECTED -> ConnectionState.CONNECTED
-                BluetoothProfile.STATE_CONNECTING -> ConnectionState.CONNECTING
-                else -> ConnectionState.DISCONNECTED
-            }
-            onConnectionStateChange(state)
-
-            if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
-                // Immediately request max MTU and discover services
-                mtuManager.requestMaxMtu(gatt)
-                gatt.discoverServices()
-            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                try {
-                    gatt.close()
-                } catch (t: Throwable) {
-                    Log.w(TAG, "gatt.close() error: ${t.message}")
-                }
-            }
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+    fun connect(device: BleDevice) {
+        Log.i(TAG, "connect() called for ${device.name ?: "Unknown"} (${device.address})")
+        val btDevice = bluetoothAdapter?.getRemoteDevice(device.address)
+        if (btDevice == null) {
+            Log.e(TAG, "BluetoothDevice not found for address=${device.address}")
+            return
         }
-
-        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-            Log.d(TAG, "onMtuChanged: mtu=$mtu status=$status")
-            mtuManager.onMtuChanged(mtu)
-            // initialize FragmentationHelper with negotiated mtu
-            fragmentationHelper = FragmentationHelper(mtu) { packet ->
-                try {
-                    onPacketReceived(packet)
-                } catch (t: Throwable) {
-                    Log.w(TAG, "onPacketReceived threw: ${t.message}")
-                }
-            }
-        }
-
-        @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-        override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                val service = gatt.getService(UuidConstants.SERVICE_DISASTER_LINK)
-                val characteristic = service?.getCharacteristic(UuidConstants.CHARACTERISTIC_DEVICE_STATUS)
-                if (characteristic != null) {
-                    // enable notifications locally
-                    val success = gatt.setCharacteristicNotification(characteristic, true)
-                    if (!success) {
-                        Log.w(TAG, "setCharacteristicNotification returned false")
-                    }
-
-                    // write CCCD to enable notifications on the remote peripheral
-                    val cccd = characteristic.getDescriptor(CCCD_UUID)
-                        ?: BluetoothGattDescriptor(CCCD_UUID, BluetoothGattDescriptor.PERMISSION_WRITE)
-                    cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                    val wrote = gatt.writeDescriptor(cccd)
-                    if (!wrote) {
-                        Log.w(TAG, "writeDescriptor(ENABLED) returned false")
-                    }
-                } else {
-                    Log.w(TAG, "DisasterLink service/characteristic not found on device")
-                }
-            } else {
-                Log.w(TAG, "onServicesDiscovered status != GATT_SUCCESS: $status")
-            }
-        }
-
-        override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            val bytes = characteristic.value ?: return
-            if (::fragmentationHelper.isInitialized) {
-                fragmentationHelper.addFragment(bytes)
-            } else {
-                Log.w(TAG, "fragmentationHelper not initialized yet; dropping fragment")
-            }
-        }
-
-        @SuppressLint("MissingPermission")
-        override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
-            // Optional: handle write confirmation if you implement a write queue.
-            if (status != BluetoothGatt.GATT_SUCCESS) {
-                Log.w(TAG, "Characteristic write returned status $status")
-            }
-        }
+        connectToDevice(btDevice)
     }
+
 }

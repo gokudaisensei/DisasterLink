@@ -25,89 +25,133 @@ class PeripheralManager(
         private const val TAG = "PeripheralManager"
     }
 
-    private val bluetoothManager: BluetoothManager? = context.getSystemService(BluetoothManager::class.java)
+    private val bluetoothManager: BluetoothManager? =
+        context.getSystemService(BluetoothManager::class.java)
     private val bluetoothAdapter: BluetoothAdapter? = bluetoothManager?.adapter
     private val advertiser: BluetoothLeAdvertiser? = bluetoothAdapter?.bluetoothLeAdvertiser
 
     private var gattServer: BluetoothGattServer? = null
     private val connectedDevices = ConcurrentHashMap<String, BluetoothDevice>()
 
-    private lateinit var fragmentationHelper: FragmentationHelper
+    private var fragmentationHelper: FragmentationHelper? = null
+
+    private val gattServerCallback = GattServerCallback(
+        mtuManager = mtuManager,
+        onConnectionStateChange = { state -> onConnectionStateChange(state) },
+        onPacketReceived = { bytes -> onPacketReceived(bytes) },
+        connectedDevices = connectedDevices,
+        onFragmentationHelperReady = { helper ->
+            fragmentationHelper = helper
+            Log.d(TAG, "FragmentationHelper ready in PeripheralManager (mtu=${helper.mtu})")
+        },
+        gattServerProvider = { gattServer })
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     fun startGattServer() {
+        Log.d(TAG, "startGattServer() called")
         gattServer = bluetoothManager?.openGattServer(context, gattServerCallback)
+        if (gattServer == null) {
+            Log.e(
+                TAG, "openGattServer returned null - device may not support acting as GATT server"
+            )
+            return
+        }
+        Log.d(TAG, "GATT server opened")
 
         val service = BluetoothGattService(
-            UuidConstants.SERVICE_DISASTER_LINK,
-            BluetoothGattService.SERVICE_TYPE_PRIMARY
+            UuidConstants.SERVICE_DISASTER_LINK, BluetoothGattService.SERVICE_TYPE_PRIMARY
         )
-
         val statusChar = BluetoothGattCharacteristic(
             UuidConstants.CHARACTERISTIC_DEVICE_STATUS,
             BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
             BluetoothGattCharacteristic.PERMISSION_WRITE
         )
 
-        // Add CCCD descriptor so clients can subscribe
+        // CCCD descriptor
         val cccd = BluetoothGattDescriptor(
-            java.util.UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"),
-            BluetoothGattDescriptor.PERMISSION_WRITE or BluetoothGattDescriptor.PERMISSION_READ
+            UuidConstants.DESCRIPTOR_CCCD,
+            BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE
         )
         statusChar.addDescriptor(cccd)
 
         service.addCharacteristic(statusChar)
-        gattServer?.addService(service)
+        try {
+            val added = gattServer!!.addService(service)
+            Log.i(TAG, "Service added to GATT server: $added")
+        } catch (t: Throwable) {
+            Log.e(TAG, "addService failed: ${t.message}")
+        }
 
-        // Initialize fragmentation helper from current MTU state
-        fragmentationHelper = FragmentationHelper(mtuManager.mtuSize.value) { fullPacket ->
+        // create initial fragmentation helper from current MTU
+        fragmentationHelper = FragmentationHelper(mtuManager.mtuSize.value) { full ->
             try {
-                onPacketReceived(fullPacket)
+                onPacketReceived(full)
             } catch (t: Throwable) {
                 Log.w(TAG, "onPacketReceived threw: ${t.message}")
             }
         }
-
         Log.i(TAG, "GATT server started (service added)")
     }
 
     fun startAdvertising() {
-        val settings = AdvertiseSettings.Builder()
-            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_BALANCED)
-            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
-            .setConnectable(true)
-            .build()
-
-        val data = AdvertiseData.Builder()
-            .addServiceUuid(ParcelUuid(UuidConstants.SERVICE_DISASTER_LINK))
-            .setIncludeDeviceName(true)
-            .build()
-
-        advertiser?.startAdvertising(settings, data, advertiseCallback)
-        Log.i(TAG, "Advertising started")
-    }
-
-    /**
-     * Send a full payload to all connected centrals using notifications and fragmentation.
-     */
-    @SuppressLint("MissingPermission")
-    fun sendPacket(payload: ByteArray) {
-        if (!::fragmentationHelper.isInitialized) {
-            Log.e(TAG, "FragmentationHelper not initialized; cannot send")
+        Log.d(TAG, "startAdvertising() called")
+        val adv = advertiser
+        if (adv == null) {
+            Log.e(
+                TAG, "BluetoothLeAdvertiser not available (device may not support BLE advertising)"
+            )
             return
         }
 
-        val service = gattServer?.getService(UuidConstants.SERVICE_DISASTER_LINK) ?: return
-        val char = service.getCharacteristic(UuidConstants.CHARACTERISTIC_DEVICE_STATUS) ?: return
-        val fragments = fragmentationHelper.fragment(payload)
+        val settings =
+            AdvertiseSettings.Builder().setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_BALANCED)
+                .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM).setConnectable(true)
+                .build()
 
+        val advertiseData =
+            AdvertiseData.Builder().addServiceUuid(ParcelUuid(UuidConstants.SERVICE_DISASTER_LINK))
+                .setIncludeTxPowerLevel(true) // Including Tx Power Level is a common practice
+                .build()
+
+        val scanResponseData =
+            AdvertiseData.Builder()
+                .setIncludeDeviceName(true).build()
+
+        try {
+            adv.startAdvertising(settings, advertiseData, scanResponseData, advertiseCallback)
+            Log.i(TAG, "Advertising started - waiting for callback")
+        } catch (t: Throwable) {
+            Log.e(TAG, "startAdvertising threw: ${t.message}")
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun sendPacket(payload: ByteArray) {
+        Log.d(TAG, "sendPacket(len=${payload.size})")
+        val helper = fragmentationHelper
+        if (helper == null) {
+            Log.e(TAG, "FragmentationHelper not initialized; cannot send")
+            return
+        }
+        val service = gattServer?.getService(UuidConstants.SERVICE_DISASTER_LINK) ?: run {
+            Log.e(TAG, "Service not available on gattServer")
+            return
+        }
+        val char = service.getCharacteristic(UuidConstants.CHARACTERISTIC_DEVICE_STATUS) ?: run {
+            Log.e(TAG, "Characteristic not found")
+            return
+        }
+
+        val fragments = helper.fragment(payload)
+        Log.d(
+            TAG, "Sending ${fragments.size} fragments to ${connectedDevices.size} connected devices"
+        )
         for (fragment in fragments) {
             char.value = fragment
             connectedDevices.values.forEach { device ->
                 try {
                     gattServer?.notifyCharacteristicChanged(device, char, false)
-                    // small throttle
-                    Thread.sleep(8)
+                    Thread.sleep(8) // consider making this delay configurable or removing if not strictly necessary
                 } catch (t: Throwable) {
                     Log.w(TAG, "notifyCharacteristicChanged failed: ${t.message}")
                 }
@@ -117,6 +161,7 @@ class PeripheralManager(
 
     @RequiresPermission(allOf = [Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.BLUETOOTH_CONNECT])
     fun stop() {
+        Log.d(TAG, "stop()")
         try {
             advertiser?.stopAdvertising(advertiseCallback)
         } catch (t: Throwable) {
@@ -133,67 +178,11 @@ class PeripheralManager(
 
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
-            Log.i(TAG, "Advertising success: $settingsInEffect")
+            Log.i(TAG, "Advertising onStartSuccess: $settingsInEffect")
         }
 
         override fun onStartFailure(errorCode: Int) {
             Log.e(TAG, "Advertising failed: $errorCode")
-        }
-    }
-
-    private val gattServerCallback = object : BluetoothGattServerCallback() {
-        override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
-            val state = when (newState) {
-                BluetoothProfile.STATE_CONNECTED -> ConnectionState.CONNECTED
-                BluetoothProfile.STATE_CONNECTING -> ConnectionState.CONNECTING
-                else -> ConnectionState.DISCONNECTED
-            }
-            onConnectionStateChange(state)
-
-            if (state == ConnectionState.CONNECTED) {
-                connectedDevices[device.address] = device
-            } else {
-                connectedDevices.remove(device.address)
-            }
-        }
-
-        @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-        override fun onCharacteristicWriteRequest(
-            device: BluetoothDevice,
-            requestId: Int,
-            characteristic: BluetoothGattCharacteristic,
-            preparedWrite: Boolean,
-            responseNeeded: Boolean,
-            offset: Int,
-            value: ByteArray
-        ) {
-            // incoming fragment from client -> feed to fragmentation helper
-            if (::fragmentationHelper.isInitialized) {
-                fragmentationHelper.addFragment(value)
-            } else {
-                Log.w(TAG, "FragmentationHelper not initialized; dropping incoming fragment")
-            }
-
-            if (responseNeeded) {
-                try {
-                    gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
-                } catch (t: Throwable) {
-                    Log.w(TAG, "sendResponse failed: ${t.message}")
-                }
-            }
-        }
-
-        override fun onMtuChanged(device: BluetoothDevice, mtu: Int) {
-            Log.d(TAG, "Peripheral onMtuChanged: $mtu")
-            mtuManager.onMtuChanged(mtu)
-            // update fragmentation helper to new mtu
-            if (::fragmentationHelper.isInitialized) {
-                fragmentationHelper.mtu = mtu
-            } else {
-                fragmentationHelper = FragmentationHelper(mtu) { fullPacket ->
-                    onPacketReceived(fullPacket)
-                }
-            }
         }
     }
 }

@@ -41,8 +41,7 @@ fun DisasterLinkApp() {
         composable("BluetoothPage") {
             val bluetoothViewModel: BluetoothViewModel = viewModel()
             BluetoothPage(
-                onNavigateBack = { navController.popBackStack() },
-                viewModel = bluetoothViewModel
+                onNavigateBack = { navController.popBackStack() }, viewModel = bluetoothViewModel
             )
         }
     }

@@ -21,6 +21,22 @@ class FragmentationHelper(
     companion object {
         private const val TAG = "FragmentationHelper"
         private const val HEADER_SIZE = 3
+
+        /**
+         * Reassembles a list of raw BLE fragments (with headers) into a single payload.
+         * Strips the 3-byte header from each fragment before combining.
+         * Assumes fragments are provided in correct order.
+         */
+        fun reassemble(fragments: List<ByteArray>): ByteArray {
+            if (fragments.isEmpty()) return ByteArray(0)
+            return fragments.fold(ByteArray(0)) { acc, fragment ->
+                if (fragment.size > HEADER_SIZE) {
+                    acc + fragment.copyOfRange(HEADER_SIZE, fragment.size)
+                } else {
+                    acc // skip invalid fragments
+                }
+            }
+        }
     }
 
     /** Current negotiated MTU (default given at creation). */

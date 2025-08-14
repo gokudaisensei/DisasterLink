@@ -1,68 +1,59 @@
 package com.example.disasterlink.ble.central
 
 import android.Manifest
-import android.bluetooth.BluetoothGatt
-import android.bluetooth.BluetoothGattCallback
-import android.bluetooth.BluetoothGattCharacteristic
-import android.bluetooth.BluetoothProfile
+import android.bluetooth.*
 import android.util.Log
 import androidx.annotation.RequiresPermission
-import com.example.disasterlink.ble.util.MtuManager
 import com.example.disasterlink.ble.util.FragmentationHelper
-import com.example.disasterlink.proto.DisasterLinkPacket
+import com.example.disasterlink.ble.util.MtuManager
+import com.example.disasterlink.ble.util.UuidConstants
+import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * Client-side GATT callback. Handles connection events, MTU negotiation,
- * service discovery, and delegates packet reassembly to FragmentationHelper.
+ * Client-side GATT callback. Creates/updates a FragmentationHelper when MTU is known,
+ * collects incoming fragments via addFragment(), and notifies the manager via onPacketReceived.
  */
 class GattClientCallback(
-    private val onConnected: (BluetoothGatt) -> Unit,
-    private val onDisconnected: (BluetoothGatt) -> Unit,
-    private val onPacketReceived: (DisasterLinkPacket) -> Unit,
-    private val mtuManager: MtuManager
+    private val mtuManager: MtuManager,
+    private val onConnectionStateChange: (ConnectionState) -> Unit,
+    private val onPacketReceived: (ByteArray) -> Unit,
+    private val onFragmentationHelperReady: (FragmentationHelper) -> Unit
 ) : BluetoothGattCallback() {
 
     companion object {
         private const val TAG = "GattClientCallback"
+        private val CCCD_UUID: UUID = UuidConstants.DESCRIPTOR_CCCD
     }
 
     private val scope = CoroutineScope(Dispatchers.Default)
-
-    // Create FragmentationHelper instance with MTU from MtuManager
-    private val fragmentationHelper by lazy {
-        FragmentationHelper(
-            mtu = mtuManager.currentMtu,
-            onCompleteMessage = { fullPayload ->
-                scope.launch {
-                    try {
-                        val packet = DisasterLinkPacket.parseFrom(fullPayload)
-                        onPacketReceived(packet)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to parse DisasterLinkPacket from reassembled data", e)
-                    }
-                }
-            }
-        )
-    }
+    private var helper: FragmentationHelper? = null
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-        super.onConnectionStateChange(gatt, status, newState)
-        if (newState == BluetoothProfile.STATE_CONNECTED) {
-            Log.i(TAG, "Connected -> requesting MTU & discovering services")
+        Log.v(
+            TAG,
+            "onConnectionStateChange device=${gatt.device.address} status=$status newState=$newState"
+        )
+        val state = when (newState) {
+            BluetoothProfile.STATE_CONNECTED -> ConnectionState.CONNECTED
+            BluetoothProfile.STATE_CONNECTING -> ConnectionState.CONNECTING
+            else -> ConnectionState.DISCONNECTED
+        }
+        onConnectionStateChange(state)
+
+        if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
+            Log.d(TAG, "connected -> request MTU and discover services")
             try {
                 gatt.requestMtu(MtuManager.MAX_MTU)
             } catch (t: Throwable) {
                 Log.w(TAG, "requestMtu threw: ${t.message}")
             }
-            onConnected(gatt)
             gatt.discoverServices()
         } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-            Log.i(TAG, "Disconnected from device")
-            onDisconnected(gatt)
+            Log.i(TAG, "disconnected: closing gatt")
             try {
                 gatt.close()
             } catch (_: Throwable) {
@@ -71,55 +62,69 @@ class GattClientCallback(
     }
 
     override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-        super.onMtuChanged(gatt, mtu, status)
+        Log.v(TAG, "onMtuChanged mtu=$mtu status=$status")
         if (status == BluetoothGatt.GATT_SUCCESS) {
             mtuManager.onMtuChanged(mtu)
-            Log.i(TAG, "MTU negotiated: $mtu")
+            helper = FragmentationHelper(mtu) { full ->
+                scope.launch { onPacketReceived(full) }
+            }
+            helper?.let { onFragmentationHelperReady(it) }
+            Log.d(TAG, "FragmentationHelper initialized (mtu=$mtu)")
         } else {
-            Log.w(TAG, "MTU negotiation failed, status $status")
+            Log.w(TAG, "MTU negotiation failed with status $status")
         }
     }
 
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-        super.onServicesDiscovered(gatt, status)
-        Log.i(TAG, "Services discovered (status=$status)")
-    }
-
-    override fun onCharacteristicRead(
-        gatt: BluetoothGatt,
-        characteristic: BluetoothGattCharacteristic,
-        status: Int
-    ) {
-        super.onCharacteristicRead(gatt, characteristic, status)
-        if (status != BluetoothGatt.GATT_SUCCESS) {
-            Log.w(TAG, "Characteristic read failed: $status")
-            return
+        Log.v(TAG, "onServicesDiscovered status=$status")
+        if (status == BluetoothGatt.GATT_SUCCESS) {
+            val service = gatt.getService(UuidConstants.SERVICE_DISASTER_LINK)
+            val characteristic =
+                service?.getCharacteristic(UuidConstants.CHARACTERISTIC_DEVICE_STATUS)
+            if (characteristic != null) {
+                val ok = gatt.setCharacteristicNotification(characteristic, true)
+                Log.d(TAG, "setCharacteristicNotification returned $ok")
+                val cccd = characteristic.getDescriptor(CCCD_UUID) ?: BluetoothGattDescriptor(
+                    CCCD_UUID,
+                    BluetoothGattDescriptor.PERMISSION_WRITE
+                )
+                cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                val wrote = gatt.writeDescriptor(cccd)
+                Log.d(TAG, "writeDescriptor(ENABLE) returned $wrote")
+            } else {
+                Log.w(TAG, "DisasterLink characteristic not found")
+            }
         }
-        val data = characteristic.value ?: return
-        handleIncomingData(data)
     }
 
     override fun onCharacteristicChanged(
-        gatt: BluetoothGatt,
-        characteristic: BluetoothGattCharacteristic
+        gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic
     ) {
-        super.onCharacteristicChanged(gatt, characteristic)
-        val data = characteristic.value ?: return
-        handleIncomingData(data)
+        val bytes = characteristic.value
+        Log.v(TAG, "onCharacteristicChanged len=${bytes?.size ?: 0}")
+        bytes?.let {
+            if (helper != null) {
+                helper!!.addFragment(it)
+            } else {
+                // If helper isn't ready yet, create a temporary helper using current MTU so we won't drop fragments
+                val tmp = FragmentationHelper(mtuManager.mtuSize.value) { full ->
+                    scope.launch {
+                        onPacketReceived(full)
+                    }
+                }
+                tmp.addFragment(it)
+            }
+        }
     }
 
-    /**
-     * Handles incoming raw data — either a complete packet or a fragment.
-     */
-    private fun handleIncomingData(bytes: ByteArray) {
-        scope.launch {
-            try {
-                // Try parsing directly
-                val packet = DisasterLinkPacket.parseFrom(bytes)
-                onPacketReceived(packet)
-            } catch (_: Exception) {
-                // Not a complete packet — pass to FragmentationHelper for reassembly
-                fragmentationHelper.addFragment(bytes)
+    override fun onCharacteristicRead(
+        gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int
+    ) {
+        Log.v(TAG, "onCharacteristicRead status=$status")
+        if (status == BluetoothGatt.GATT_SUCCESS) {
+            characteristic.value?.let { bytes ->
+                if (helper != null) helper!!.addFragment(bytes) else onPacketReceived(bytes)
             }
         }
     }
