@@ -44,6 +44,9 @@ fun DisasterLinkApp() {
                 onNavigateBack = { navController.popBackStack() }, viewModel = bluetoothViewModel
             )
         }
+        composable("nearbyAlerts") {
+            com.example.disasterlink.ui.alerts.NearbyAlertsScreen()
+        }
     }
 }
 

@@ -332,7 +332,9 @@ fun QuickActionsGrid(navController: NavController) { // Added NavController
                         title = action.title,
                         icon = action.icon,
                         onTap = {
-                            if (action.route == "BluetoothPage") { // MODIFIED: Check for BluetoothPage route
+                            if (action.route == "BluetoothPage") {
+                                navController.navigate(action.route)
+                            } else if (action.route == "nearbyAlerts") {
                                 navController.navigate(action.route)
                             } else {
                                 // Handle other actions or leave as does nothing for now
@@ -353,7 +355,9 @@ fun QuickActionsGrid(navController: NavController) { // Added NavController
                         title = action.title,
                         icon = action.icon,
                         onTap = {
-                            if (action.route == "BluetoothPage") { // MODIFIED: Check for BluetoothPage route
+                            if (action.route == "BluetoothPage") {
+                                navController.navigate(action.route)
+                            } else if (action.route == "nearbyAlerts") {
                                 navController.navigate(action.route)
                             } else {
                                 // Handle other actions or leave as does nothing for now
