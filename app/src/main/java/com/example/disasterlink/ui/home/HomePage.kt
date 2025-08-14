@@ -336,6 +336,8 @@ fun QuickActionsGrid(navController: NavController) { // Added NavController
                                 navController.navigate(action.route)
                             } else if (action.route == "nearbyAlerts") {
                                 navController.navigate(action.route)
+                            } else if (action.route == "shareMyStatus") {
+                                navController.navigate(action.route)
                             } else {
                                 // Handle other actions or leave as does nothing for now
                             }
@@ -358,6 +360,8 @@ fun QuickActionsGrid(navController: NavController) { // Added NavController
                             if (action.route == "BluetoothPage") {
                                 navController.navigate(action.route)
                             } else if (action.route == "nearbyAlerts") {
+                                navController.navigate(action.route)
+                            } else if (action.route == "shareMyStatus") {
                                 navController.navigate(action.route)
                             } else {
                                 // Handle other actions or leave as does nothing for now

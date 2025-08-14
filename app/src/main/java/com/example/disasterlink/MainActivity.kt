@@ -47,6 +47,9 @@ fun DisasterLinkApp() {
         composable("nearbyAlerts") {
             com.example.disasterlink.ui.alerts.NearbyAlertsScreen()
         }
+        composable("shareMyStatus") {
+            com.example.disasterlink.ui.status.ShareMyStatusScreen()
+        }
     }
 }
 
