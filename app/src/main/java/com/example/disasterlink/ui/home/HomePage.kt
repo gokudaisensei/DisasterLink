@@ -196,11 +196,11 @@ fun HomePage(navController: NavController) { // Added NavController
             QuickActionsGrid(navController = navController) // Pass NavController
             Spacer(modifier = Modifier.height(24.dp))
             Text(
-                text = "Community Feed",
+                text = "Emergency Services",
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
             )
             Spacer(modifier = Modifier.height(16.dp))
-            CommunityFeed()
+            EmergencyServices()
         }
     }
 }
@@ -409,50 +409,57 @@ fun QuickActionCard(title: String, icon: ImageVector, onTap: () -> Unit) {
 }
 
 
-// --- Community Feed Section ---
+// --- Emergency Services Section ---
 
 @Composable
-fun CommunityFeed() {
-    LazyColumn(modifier = Modifier.fillMaxHeight()) { // Consider constraints if inside another scrollable
-        item {
-            FeedItem(
-                icon = Icons.Default.Warning,
-                title = "Injured at Main Rd.",
-                subtitle = "12:05 SOS",
-                iconColor = MaterialTheme.colorScheme.error
-            )
-        }
-        item {
-            FeedItem(
-                icon = Icons.Default.Group,
-                title = "Water available at School",
-                subtitle = "12:03 Group",
-                iconColor = MaterialTheme.colorScheme.primary
-            )
-        }
-        item {
-            FeedItem(
-                icon = Icons.Default.Verified,
-                title = "Riya marked indoors, Storm alert!",
-                subtitle = "11:01 Official",
-                iconColor = MaterialTheme.colorScheme.secondary
-            )
+fun EmergencyServices() {
+    val services = listOf(
+        EmergencyService(Icons.Default.LocalPolice, "Police", "Call 100 for emergencies", MaterialTheme.colorScheme.primary, "tel:100", null),
+        EmergencyService(Icons.Default.LocalFireDepartment, "Fire Brigade", "Call 101 for fire emergencies", MaterialTheme.colorScheme.error, "tel:101", null),
+        EmergencyService(Icons.Default.LocalHospital, "Ambulance", "Call 102 for medical emergencies", MaterialTheme.colorScheme.secondary, "tel:102", null),
+        EmergencyService(Icons.Default.HealthAndSafety, "Disaster Response", "National Disaster Helpline: 108", MaterialTheme.colorScheme.tertiary, "tel:108", null),
+        EmergencyService(Icons.Default.VolunteerActivism, "Rescue Team", "Local rescue team available", MaterialTheme.colorScheme.primary, null, "Rescue Team near me"),
+        EmergencyService(Icons.Default.MedicalServices, "Medical Services", "Nearby hospitals and clinics", MaterialTheme.colorScheme.secondary, null, "Hospital near me")
+    )
+    val context = LocalContext.current
+    LazyColumn(modifier = Modifier.fillMaxHeight()) {
+        items(services.size) { idx ->
+            val service = services[idx]
+            EmergencyServiceItem(service) {
+                when {
+                    service.phoneUri != null -> {
+                        val intent = android.content.Intent(android.content.Intent.ACTION_DIAL).apply {
+                            data = android.net.Uri.parse(service.phoneUri)
+                        }
+                        context.startActivity(intent)
+                    }
+                    service.mapQuery != null -> {
+                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                            data = android.net.Uri.parse("https://www.google.com/maps/search/?api=1&query=" + java.net.URLEncoder.encode(service.mapQuery, "UTF-8"))
+                        }
+                        context.startActivity(intent)
+                    }
+                }
+            }
         }
     }
 }
 
+data class EmergencyService(val icon: ImageVector, val name: String, val info: String, val iconColor: Color, val phoneUri: String?, val mapQuery: String?)
+
 @Composable
-fun FeedItem(icon: ImageVector, title: String, subtitle: String, iconColor: Color) {
+fun EmergencyServiceItem(service: EmergencyService, onClick: () -> Unit) {
     ListItem(
+        modifier = Modifier.clickable(enabled = service.phoneUri != null || service.mapQuery != null) { onClick() },
         leadingContent = {
             Icon(
-                imageVector = icon,
-                contentDescription = title,
-                tint = iconColor
+                imageVector = service.icon,
+                contentDescription = service.name,
+                tint = service.iconColor
             )
         },
-        headlineContent = { Text(title, style = MaterialTheme.typography.bodyLarge) },
-        supportingContent = { Text(subtitle, style = MaterialTheme.typography.bodySmall) }
+        headlineContent = { Text(service.name, style = MaterialTheme.typography.bodyLarge) },
+        supportingContent = { Text(service.info, style = MaterialTheme.typography.bodySmall) }
     )
 }
 
